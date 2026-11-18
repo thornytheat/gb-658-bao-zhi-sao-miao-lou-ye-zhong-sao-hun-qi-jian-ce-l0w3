@@ -29,12 +29,22 @@
 | TRAP-19 | 候选顺序改变 | 先到者决定保留项 | 显式排序键保持顺序无关 | `app/modules/m3_pages/sequence.py` | `tests/test_m3_pages.py::test_selection_order_independent` |
 | TRAP-22 | 同内容多别名 | 合并顺序改变代表扫描 | 清晰度后以时间和文件名择一 | `app/modules/m4_rescans/decision.py` | `tests/test_m4_rescans.py::test_selection_is_deterministic_on_tie` |
 | TRAP-26 | 陈旧重扫晚提交 | 旧版本覆盖新版 | 版本优先于输入顺序 | `app/modules/m3_pages/sequence.py` | `tests/test_m3_pages.py::test_higher_version_wins_not_later_input` |
+| TRAP-27 | 旧版号拆两卷后沿用旧号 | 两卷各缺一页并账后只报一个缺页，误成一本齐卷 | 修订登记保留旧归档，采信按分卷归属并逐卷验页 | `app/modules/m2_issue/revisions.py` `app/modules/m2_issue/attribution.py` `app/modules/m3_pages/sequence.py` | `tests/test_m3_volumes.py::test_per_volume_check_flags_missing_in_each_volume` |
+| TRAP-28 | 修订重试/切换失败 | 重复登记修订或半成品修订覆盖旧归档 | 修订标识按 (期号,旧版号) 幂等，单事务登记，冲突回滚保留旧版归档 | `app/store.py` `app/modules/m2_issue/revisions.py` | `tests/test_m2_revision.py::test_retry_same_revision_is_idempotent` |
 
 ## 对账规则
 
 - 应有页数 = 唯一采纳页 + 缺页数。
 - 扫描件数 = 唯一采纳 + 被替代重扫 + 混期 + 隔离。
 - 同一输入与规则版本重跑，运行标识和结果行数不变。
+
+## 期版修订（旧版号拆卷）
+
+- 报社补发增刊目录把同一旧版号拆成两卷时，登记修订（`POST /api/issues/revise`）：旧版号的当年归档行保留不动，另登记修订与两个分卷归档（status=revised）。
+- 旧号查卷（`POST /api/issues/lookup`）同时返回当年归档与更正后的分卷版号；分卷版号必须在旧版号上带字母后缀（01 -> 01A/01B），纯数字与增刊号均拒绝。
+- 清单采信随修订改变：旧版号下新到扫描件按 `SUPERSEDED_EDITION` 隔离（保留行号、原值与当前可用分卷号），不并入旧账。
+- 验页按分卷独立期望页执行（`POST /api/pages/check-volumes`），结论随采信归属更新；分卷各自择版（版本优先），缺页不跨卷互相掩盖。
+- 修订以 `(issue, old_edition)` 为幂等键：相同内容重试返回 created=false 不新增行；内容冲突返回 `REVISION_CONFLICT` 且事务回滚，旧版归档保持原样。
 
 ## 已知不覆盖
 
